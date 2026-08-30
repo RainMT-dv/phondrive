@@ -1,205 +1,171 @@
 # PhonDrive
 
-Expose your Android phone's storage as a network drive on Windows — browse, edit, copy, move files natively in Explorer over Tailscale.
-
-## How It Works
+Mount your Android phone's storage as a native Windows drive — browse, edit, copy, and move files in Explorer over [Tailscale](https://tailscale.com).
 
 ```
 ┌─────────────────┐     Tailscale      ┌─────────────────┐
 │  Android Phone  │ ◄──── tunnel ────► │   Windows PC    │
-│                 │                     │                 │
 │  WebDAV Server  │ ──── HTTP:8080 ───► │  rclone mount   │
 │  (Kotlin/Ktor)  │                     │  (Z: drive)     │
 └─────────────────┘                     └─────────────────┘
 ```
 
-1. **Android app** runs a WebDAV server on port 8080, serving files from your phone's storage
-2. **Windows tray app** mounts the WebDAV server as a native drive letter (Z:) using rclone + WinFsp
-3. **Tailscale** provides the encrypted tunnel — works across different networks (no Wi-Fi required)
+## Features
+
+- **Native Explorer integration** — phone storage appears as a regular drive letter (Z:)
+- **Works anywhere** — Tailscale tunnel means phone and PC don't need to be on the same network
+- **One-click mount** — system tray app mounts/unmounts with a single click
+- **Full file operations** — create, read, rename, move, copy, delete files directly from Explorer
+- **Auto-launch** — tray app can start on Windows login and auto-mount
 
 ## Requirements
 
-### Android
-- Android 7.0+ (API 24)
-- [Tailscale](https://play.google.com/store/apps/details?id=com.tailscale.ipn) installed and connected
-- Grant "All Files Access" permission when prompted
-
-### Windows
-- Windows 10/11
-- [Tailscale](https://tailscale.com/download) installed and connected (same account as phone)
-- [rclone](https://rclone.org/downloads/) v1.65+ 
-- [WinFsp](https://winfsp.dev/rel/) v2.0+ (required by rclone for drive mounting)
-- Python 3.8+ (for tray app) OR the pre-built .exe
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Android | 7.0+ (API 24) | |
+| Tailscale | Latest | Same account on phone and PC |
+| Windows | 10+ | |
+| rclone | 1.65+ | WebDAV client |
+| WinFsp | 2.0+ | Required by rclone for drive mounting |
 
 ## Quick Start
 
-### 1. Install Android App
+### 1. Install on Phone
 
-Build from source:
+Download `PhonDrive.apk` from [Releases](https://github.com/RainMT-dv/phondrive/releases) and install it. Grant "All Files Access" when prompted.
+
+Open the app, enter your phone's Tailscale IP, and tap **Ligar servidor** (Start Server).
+
+### 2. Install on Windows
+
+Download `PhonDrive-Tray.exe` from [Releases](https://github.com/RainMT-dv/phondrive/releases). Run it — the tray icon appears in the Notification Area.
+
+> [!NOTE]
+> If the tray icon doesn't appear, check the `^` overflow arrow next to the clock.
+
+### 3. Mount
+
+Right-click the tray icon → **Mount**. Your phone storage appears as `Z:\` in Explorer.
+
+### 4. Browse
+
+Open Explorer → **This PC** → **PhonDrive (Z:)** — done.
+
+## Build from Source
+
+### Android
+
 ```bash
 cd android
 ./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
+# Output: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Or install the pre-built APK (see Releases).
+Requires Android SDK with `platforms;android-34` and `build-tools;34.0.0`.
 
-On first launch:
-1. Grant "All Files Access" permission
-2. Tap **Start Server** — note the IP address shown (e.g., `100.84.246.7:8080`)
+### Windows Tray (Python)
 
-### 2. Setup Windows
-
-**Option A: Run the tray app (recommended)**
 ```bash
 cd windows
 pip install -r requirements.txt
 python tray_app.py
 ```
 
-**Option B: Build the .exe**
+### Windows Tray (.exe)
+
 ```bash
-cd windows
-pip install -r requirements.txt pyinstaller
-.\..\scripts\build-windows.ps1
-# Output: dist/tray_app.exe
+pip install pyinstaller
+pyinstaller --onefile --noconsole --name PhonDrive-Tray tray_app.py
 ```
 
-**Option C: Use the Rust tray app**
+### Windows Tray (Rust)
+
 ```bash
 cd windows/phondrive-tray
 cargo build --release
 # Output: target/release/phondrive-tray.exe
 ```
 
-### 3. Mount the Drive
-
-The tray app auto-discovers your phone's Tailscale IP. Click the tray icon → **Mount**.
-
-Or manually:
-```powershell
-rclone mount phondrive:/ Z: --volname PhonDrive --vfs-cache-mode writes --network-mode --dir-cache-time 5s
-```
-
-### 4. Browse Files
-
-Open Explorer → **This PC** → **PhonDrive (Z:)** — your phone's files are now a native drive.
-
 ## Configuration
 
-### Default Credentials
-- **Username:** `user`
-- **Password:** `pass`
-
-Change these in the Android app's settings (Todo 5+).
-
 ### rclone Config
-Auto-created by `scripts/setup-windows.ps1` or manually:
+
+Auto-created by the tray app, or set up manually at `%APPDATA%\rclone\rclone.conf`:
+
 ```ini
 [phondrive]
 type = webdav
 url = http://<PHONE_IP>:8080
 vendor = other
 user = user
-pass = <obfuscated>
+pass = pass
 ```
+
+### Default Credentials
+
+- **Username:** `user`
+- **Password:** `pass`
+
+> [!WARNING]
+> Change these before exposing the server beyond your local Tailscale network.
 
 ### Tray App Config
-Stored at `~/.phondrive/config.json` (Python) or `%APPDATA%/phondrive/config.toml` (Rust).
 
-## Building
-
-### Android
-```bash
-cd android
-./gradlew assembleDebug          # Debug APK
-./gradlew assembleRelease        # Release APK (needs signing config)
-```
-
-### Windows (Python)
-```bash
-cd windows
-pip install -r requirements.txt
-python tray_app.py
-```
-
-### Windows (Rust)
-```bash
-cd windows/phondrive-tray
-cargo build --release
-```
-
-### Windows (.exe via PyInstaller)
-```bash
-.\scripts\build-windows.ps1
-```
+| Version | Location |
+|---------|----------|
+| Python | `~/.phondrive/config.json` |
+| Rust | `%APPDATA%/phondrive/config.toml` |
 
 ## Testing
 
-### WebDAV Server Tests
-```bash
-cd android
-./gradlew test
-```
-
-### E2E Verification
 ```powershell
-.\scripts\verify-e2e.ps1 -IP "100.84.246.7" -Port 8080
-```
+# Run the full E2E test suite
+.\scripts\verify-e2e.ps1
 
-### Manual curl Test
-```bash
-# Ping
-curl http://100.84.246.7:8080/ping -u user:pass
-
-# List root
-curl -X PROPFIND http://100.84.246.7:8080/ -u user:pass \
-  -H "Depth: 1" -d '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>'
+# Or test manually with curl
+curl http://<PHONE_IP>:8080/ping -u user:pass
 ```
 
 ## Project Structure
 
 ```
-Rain_COFG/
-├── android/                    # Android WebDAV server app
+phondrive/
+├── android/                    # Android WebDAV server
 │   ├── app/src/main/
 │   │   ├── AndroidManifest.xml
 │   │   └── java/com/phondrive/webdavspike/
-│   │       ├── MainActivity.kt      # UI + permission flow
-│   │       ├── WebDavServer.kt      # Ktor WebDAV server
+│   │       ├── MainActivity.kt      # UI + permissions
+│   │       ├── WebDavServer.kt      # WebDAV server (Ktor)
 │   │       └── WebDavService.kt     # Foreground service
 │   └── build.gradle.kts
 ├── windows/                    # Windows tray apps
-│   ├── tray_app.py             # Python tray (pystray)
-│   ├── requirements.txt
-│   └── phondrive-tray/         # Rust tray (tray-icon)
-│       ├── src/main.rs
-│       └── Cargo.toml
-├── scripts/
-│   ├── setup-windows.ps1       # One-time Windows setup
-│   ├── mount-phonedrive.ps1    # Manual mount script
-│   ├── build-windows.ps1       # PyInstaller build
+│   ├── tray_app.py             # Python (pystray)
+│   ├── phondrive-tray/         # Rust (tray-icon)
+│   └── requirements.txt
+├── scripts/                    # Automation scripts
+│   ├── verify-e2e.ps1          # Full E2E verification
 │   ├── validate-webdav.ps1     # WebDAV API tests
-│   └── verify-e2e.ps1          # Full E2E verification
-└── README.md
+│   ├── setup-windows.ps1       # One-time Windows setup
+│   └── build-windows.ps1       # PyInstaller build
+└── dist/                       # Pre-built binaries
+    ├── android/PhonDrive.apk
+    └── windows/PhonDrive-Tray.exe
 ```
 
 ## Known Limitations
 
-- **Windows WebClient (net use) doesn't work with Tailscale** — the built-in Mini-Redirector cannot route HTTP WebDAV through virtual network adapters. We use rclone + WinFsp instead.
-- **50MB file size limit** — Windows WebClient caps uploads at 50MB. rclone bypasses this, but very large files may be slow over Tailscale.
-- **Doze mode** — Android may kill the foreground service after 8+ hours with screen off. Exempt the app from battery optimization for best results.
+- **rclone required** — Windows built-in `net use` cannot route WebDAV through Tailscale's virtual adapter. rclone + WinFsp is used instead.
+- **Doze mode** — Android may kill the foreground service after 8+ hours with screen off. Exempt the app from battery optimization for reliability.
 - **No file locking** — editing the same file on phone and PC simultaneously may cause corruption.
-- **Single direction** — phone→PC only (PC pulls files). No PC→phone push.
-- **Tailscale required** — Basic auth over HTTP is only safe inside the Tailscale tunnel.
+- **Phone to PC only** — one-directional. PC reads from phone; no PC-to-phone push.
+- **Tailscale required** — Basic auth over HTTP is only safe inside Tailscale's encrypted tunnel.
 
 ## Security
 
-- Basic auth credentials are base64-encoded (trivially decodable) — **only safe over Tailscale's encrypted tunnel**
+- Credentials are transmitted as Base64 (trivially decodable) — **only safe over Tailscale**
 - Never expose the WebDAV server to the open internet
-- Change default credentials before regular use
-- The APK requests broad storage permissions — this is required for the WebDAV server to function
+- The APK requests broad storage permissions required for the server to function
 
 ## License
 
-MIT
+[MIT](LICENSE)
