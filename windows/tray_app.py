@@ -342,6 +342,31 @@ def on_quit(icon, item):
     unmount_drive()
     icon.stop()
 
+def on_set_ip(icon, item):
+    """Open a dialog to manually set the phone IP."""
+    import tkinter as tk
+    from tkinter import simpledialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    current = config.get("phone_ip", "")
+    ip = simpledialog.askstring(
+        "PhonDrive - IP do Celular",
+        "Digite o IP do Tailscale do celular:",
+        initialvalue=current,
+        parent=root,
+    )
+    root.destroy()
+
+    if ip and ip.strip():
+        config["phone_ip"] = ip.strip()
+        save_config()
+        show_notification("PhonDrive", f"IP definido: {ip.strip()}")
+    elif ip is not None:
+        show_notification("PhonDrive", "IP não pode ser vazio", is_error=True)
+
 def on_toggle_auto_launch(icon, item):
     current = is_auto_launch_enabled()
     set_auto_launch(not current)
@@ -369,6 +394,7 @@ def build_menu():
     return pystray.Menu(
         pystray.MenuItem(mount_text, mount_action, default=True),
         pystray.MenuItem("Status", on_status),
+        pystray.MenuItem("Set IP", on_set_ip),
         pystray.MenuItem("Refresh IP", on_refresh_ip),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(auto_launch_text, on_toggle_auto_launch),
