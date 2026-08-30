@@ -1,0 +1,43 @@
+# === Android ===
+android/.gradle/
+android/.kotlin/
+android/app/build/
+android/build/
+android/local.properties
+android/app/release-key.jks
+android/*.hprof
+
+# === Windows Python ===
+windows/__pycache__/
+windows/dist/
+windows/build/
+windows/*.spec
+windows/tray_app.spec
+
+# === Windows Rust ===
+windows/phondrive-tray/target/
+
+# === rclone mount ===
+rclone-v*
+
+# === OS ===
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# === IDE ===
+.idea/
+.vscode/
+*.iml
+
+# === PhonDrive secrets ===
+*.jks
+*.keystore
+*.pem
+*.key
+
+# === omo (planning internals) ===
+.omo/
+
+# === Evidence / temp ===
+*.log
