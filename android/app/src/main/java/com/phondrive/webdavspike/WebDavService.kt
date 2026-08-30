@@ -33,12 +33,23 @@ class WebDavService : Service() {
         const val ACTION_STOP = "com.phondrive.webdavspike.STOP"
         const val EXTRA_PORT = "port"
 
-        // Status broadcast
         const val ACTION_STATUS = "com.phondrive.webdavspike.STATUS"
         const val EXTRA_IS_RUNNING = "is_running"
         const val EXTRA_IP = "ip"
         const val EXTRA_PORT_INT = "port"
         const val EXTRA_ERROR = "error"
+
+        @Volatile
+        var isServerRunning = false
+            private set
+
+        @Volatile
+        var currentIp: String? = null
+            private set
+
+        @Volatile
+        var currentPort = 8080
+            private set
     }
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -66,6 +77,11 @@ class WebDavService : Service() {
     }
 
     private fun startServer(port: Int) {
+        if (server != null) {
+            broadcastStatus(running = true, ip = getDeviceTailscaleIp(), port = port)
+            return
+        }
+
         val rootDir = Environment.getExternalStorageDirectory()
         if (!rootDir.exists() || !rootDir.canRead()) {
             broadcastStatus(running = false, error = "Cannot read external storage")
@@ -94,6 +110,9 @@ class WebDavService : Service() {
                 )
 
                 broadcastStatus(running = true, ip = ip, port = port)
+                isServerRunning = true
+                currentIp = ip
+                currentPort = port
             } catch (e: Exception) {
                 broadcastStatus(running = false, error = e.message ?: "Unknown error")
                 stopSelf()
@@ -104,6 +123,8 @@ class WebDavService : Service() {
     private fun stopServer() {
         server?.stop(1000, 2000)
         server = null
+        isServerRunning = false
+        currentIp = null
         releaseWakeLock()
         broadcastStatus(running = false)
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -162,7 +183,6 @@ class WebDavService : Service() {
                 for (address in iface.inetAddresses) {
                     if (address is Inet4Address && !address.isLoopbackAddress) {
                         val ip = address.hostAddress ?: continue
-                        // Tailscale uses 100.64.0.0/10 (CGNAT range)
                         if (ip.startsWith("100.") && ip.substringAfter(".").toIntOrNull()?.let { it in 64..127 } == true) {
                             return ip
                         }
@@ -170,6 +190,15 @@ class WebDavService : Service() {
                 }
             }
         } catch (_: Exception) {}
+
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("ip", "route", "get", "100.64.0.1"))
+            val output = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            val match = Regex("src (\\d+\\.\\d+\\.\\d+\\.\\d+)").find(output)
+            if (match != null) return match.groupValues[1]
+        } catch (_: Exception) {}
+
         return null
     }
 
@@ -203,6 +232,7 @@ class WebDavService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         server?.stop(1000, 2000)
+        isServerRunning = false
         scope.cancel()
         releaseWakeLock()
     }

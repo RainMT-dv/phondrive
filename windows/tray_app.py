@@ -139,7 +139,8 @@ vendor = other
 user = {config['user']}
 pass = {rclone_obfuscate(config['pass'])}
 """
-            rclone_config_dir = Path.home() / "AppData" / "Port" / "rclone"
+            # ponytail: write to default rclone location so `rclone mount` finds it
+            rclone_config_dir = Path.home() / "AppData" / "Roaming" / "rclone"
             rclone_config_dir.mkdir(parents=True, exist_ok=True)
             rclone_config_file = rclone_config_dir / "rclone.conf"
             
@@ -167,19 +168,14 @@ pass = {rclone_obfuscate(config['pass'])}
     ]
     
     try:
-        # Use PowerShell Start-Process to avoid console window
-        if sys.platform == "win32":
-            arg_str = " ".join(f'"{c}"' for c in cmd[1:])
-            ps_cmd = f'Start-Process -FilePath "{rclone}" -ArgumentList {arg_str} -WindowStyle Hidden'
-            mount_process = subprocess.Popen(
-                ["powershell", "-Command", ps_cmd],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-        else:
-            mount_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Wait a bit and check
-        time.sleep(3)
+        mount_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        )
+
+        time.sleep(5)
         
         # Verify mount by checking drive
         check = subprocess.run(
@@ -403,6 +399,7 @@ def main():
     # Auto-mount if configured
     if config.get("auto_mount") and config.get("phone_ip"):
         def _auto_mount():
+            time.sleep(5)
             ok, msg = mount_with_retry(max_retries=3, delay=10)
             update_icon()
             if not ok:

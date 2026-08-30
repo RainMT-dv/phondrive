@@ -1,4 +1,7 @@
+#![windows_subsystem = "windows"]
+
 use std::fs;
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -92,50 +95,30 @@ fn is_mounted(drive: &str) -> bool {
 }
 
 fn mount_drive(cfg: &Config) -> Result<String, String> {
-    let ip = if cfg.phone_ip.is_empty() {
-        get_phone_ip(&cfg.tailscale_hostname)
-            .ok_or("Phone IP not found via Tailscale")?
-    } else {
-        cfg.phone_ip.clone()
-    };
-
-    let url = format!("http://{}:{}", ip, cfg.port);
-    let drive = format!("{}:", cfg.drive_letter);
-
-    let rclone_cfg_dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("rclone");
-    let _ = fs::create_dir_all(&rclone_cfg_dir);
-    let rclone_cfg_file = rclone_cfg_dir.join("rclone.conf");
-
-    let existing = fs::read_to_string(&rclone_cfg_file).unwrap_or_default();
-    if !existing.contains("[phondrive]") {
-        let remote_cfg = format!(
-            "[phondrive]\ntype = webdav\nurl = {url}\nvendor = other\nuser = {}\npass = {}\n",
-            cfg.user, cfg.pass
-        );
-        fs::write(&rclone_cfg_file, format!("{existing}\n{remote_cfg}"))
-            .map_err(|e| format!("Failed to write rclone config: {e}"))?;
+    if cfg.phone_ip.is_empty() {
+        return Err("Phone IP not configured".into());
     }
 
-    let status = Command::new(&cfg.rclone_path)
-        .args([
-            "mount",
-            "phondrive:/",
-            &drive,
-            "--volname",
-            "PhonDrive",
-            "--vfs-cache-mode",
-            "writes",
-            "--network-mode",
-            "--dir-cache-time",
-            "5s",
-        ])
-        .spawn();
+    let drive = format!("{}:", cfg.drive_letter);
 
-    match status {
-        Ok(_) => Ok(format!("Mounting at {drive}\\")),
-        Err(e) => Err(format!("Failed to start rclone: {e}")),
+    Command::new(&cfg.rclone_path)
+        .args([
+            "mount", "phondrive:/", &drive,
+            "--volname", "PhonDrive",
+            "--vfs-cache-mode", "writes",
+            "--network-mode",
+            "--dir-cache-time", "5s",
+        ])
+        .creation_flags(0x08000000)
+        .spawn()
+        .map_err(|e| format!("Failed to start rclone: {e}"))?;
+
+    std::thread::sleep(Duration::from_secs(5));
+
+    if is_mounted(&cfg.drive_letter) {
+        Ok(format!("Mounted at {drive}\\"))
+    } else {
+        Err("Mount started but drive not accessible".into())
     }
 }
 
@@ -202,17 +185,15 @@ fn main() {
         }
     }
 
+    let mounted = std::cell::Cell::new(is_mounted(&cfg.drive_letter));
+
     let menu = Menu::new();
     let mount_item = MenuItem::new("Mount", true, None);
     let unmount_item = MenuItem::new("Unmount", true, None);
     let status_item = MenuItem::new("Status", true, None);
     let refresh_item = MenuItem::new("Refresh IP", true, None);
     let auto_launch_item = MenuItem::new(
-        if is_auto_launch_enabled() {
-            "Disable auto-launch"
-        } else {
-            "Enable auto-launch"
-        },
+        if is_auto_launch_enabled() { "Disable auto-launch" } else { "Enable auto-launch" },
         true,
         None,
     );
@@ -225,15 +206,22 @@ fn main() {
     menu.append(&auto_launch_item).unwrap();
     menu.append(&quit_item).unwrap();
 
-    let mounted = is_mounted(&cfg.drive_letter);
-    let color = if mounted { (0, 200, 0) } else { (128, 128, 128) };
+    let color = if mounted.get() { (0, 200, 0) } else { (128, 128, 128) };
 
-    let _tray_icon = TrayIconBuilder::new()
+    let tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_tooltip(APP_NAME)
         .with_icon(create_icon_data(color.0, color.1, color.2))
         .build()
         .unwrap();
+
+    if cfg.auto_mount && !mounted.get() && !cfg.phone_ip.is_empty() {
+        let cfg_clone = cfg.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(5));
+            let _ = mount_drive(&cfg_clone);
+        });
+    }
 
     let menu_channel = MenuEvent::receiver();
 
@@ -242,37 +230,30 @@ fn main() {
             match event.id {
                 id if id == mount_item.id() => {
                     match mount_drive(&cfg) {
-                        Ok(msg) => println!("Mount: {msg}"),
-                        Err(e) => eprintln!("Mount failed: {e}"),
+                        Ok(_) => {
+                            mounted.set(true);
+                            tray_icon.set_icon(Some(create_icon_data(0, 200, 0))).ok();
+                        }
+                        Err(_) => {}
                     }
                 }
                 id if id == unmount_item.id() => {
-                    match unmount_drive() {
-                        Ok(msg) => println!("Unmount: {msg}"),
-                        Err(e) => eprintln!("Unmount failed: {e}"),
-                    }
+                    let _ = unmount_drive();
+                    mounted.set(false);
+                    tray_icon.set_icon(Some(create_icon_data(128, 128, 128))).ok();
                 }
                 id if id == status_item.id() => {
-                    let mounted = is_mounted(&cfg.drive_letter);
-                    let status = if mounted { "Mounted" } else { "Not mounted" };
-                    println!("Status: {status} at {}:{}", cfg.drive_letter, cfg.port);
+                    mounted.set(is_mounted(&cfg.drive_letter));
                 }
                 id if id == refresh_item.id() => {
                     if let Some(ip) = get_phone_ip(&cfg.tailscale_hostname) {
-                        cfg.phone_ip = ip.clone();
+                        cfg.phone_ip = ip;
                         save_config(&cfg);
-                        println!("Phone IP: {ip}");
-                    } else {
-                        eprintln!("Could not discover phone IP");
                     }
                 }
                 id if id == auto_launch_item.id() => {
                     let current = is_auto_launch_enabled();
                     set_auto_launch(!current);
-                    println!(
-                        "Auto-launch {}",
-                        if current { "disabled" } else { "enabled" }
-                    );
                 }
                 id if id == quit_item.id() => {
                     let _ = unmount_drive();
