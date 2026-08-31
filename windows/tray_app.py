@@ -342,6 +342,37 @@ def on_quit(icon, item):
     unmount_drive()
     icon.stop()
 
+# ── Mount health monitor ───────────────────────────────────────────────────
+
+_health_stop = threading.Event()
+
+def _health_check():
+    """Periodically check if mount is alive; remount if dead."""
+    while not _health_stop.is_set():
+        _health_stop.wait(30)  # check every 30 seconds
+        if _health_stop.is_set():
+            break
+        if not config.get("phone_ip"):
+            continue
+        if not config.get("auto_mount", True):
+            continue
+        # Only check if we think we're mounted
+        if not is_mounted:
+            continue
+        # Try to access the drive
+        try:
+            entries = os.listdir("Z:\\")
+        except Exception:
+            # Mount is dead, try to remount
+            show_notification("PhonDrive", "Mount lost, remounting...")
+            time.sleep(2)
+            ok, msg = mount_drive()
+            update_icon()
+            if ok:
+                show_notification("PhonDrive", "Remounted successfully")
+            else:
+                show_notification("PhonDrive", f"Remount failed: {msg}", is_error=True)
+
 def on_set_ip(icon, item):
     """Open a dialog to manually set the phone IP."""
     import tkinter as tk
@@ -440,6 +471,9 @@ def main():
         "PhonDrive - Not mounted",
         build_menu()
     )
+    
+    # Start mount health monitor
+    threading.Thread(target=_health_check, daemon=True).start()
     
     # Run (blocks)
     tray_icon.run()
