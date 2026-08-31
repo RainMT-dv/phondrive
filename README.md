@@ -4,9 +4,9 @@ Monte o armazenamento do seu celular Android como um drive nativo no Windows —
 
 ```
 ┌─────────────────┐     Tailscale       ┌─────────────────┐
-│  Celular Android│ ◄──── túnel ─────►  │   PC Windows    │
-│  Servidor WebDAV│ ──── HTTP:8080 ───► │  rclone mount   │
-│  (Kotlin/Ktor)  │                     │  (letra Z:)     │
+│ Celular Android │ ◄──── túnel ─────►  │   PC Windows    │
+│ Servidor WebDAV │ ──── HTTP:8080 ───► │  rclone mount   │
+│ (Kotlin/Ktor)   │                     │  (letra Z:)     │
 └─────────────────┘                     └─────────────────┘
 ```
 
